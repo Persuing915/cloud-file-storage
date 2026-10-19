@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cloud File Storage — Frontend Demo</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background-color: #f4f6f9; color: #333; padding: 24px; }
+    .container { max-width: 900px; margin: 0 auto; }
+    h1 { margin-bottom: 20px; color: #1a73e8; display: flex; align-items: center; gap: 10px; }
+    .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.08); }
+    h2 { font-size: 1.1rem; margin-bottom: 15px; color: #444; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .form-group { margin-bottom: 12px; }
+    label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; color: #555; }
+    input[type="text"], input[type="email"], input[type="password"], input[type="file"] {
+      width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.9rem;
+    }
+    button {
+      background-color: #1a73e8; color: white; border: none; padding: 10px 16px; border-radius: 6px;
+      font-weight: 600; cursor: pointer; transition: background 0.2s;
+    }
+    button:hover { background-color: #1557b0; }
+    button.btn-danger { background-color: #d93025; }
+    button.btn-danger:hover { background-color: #a51d14; }
+    .status-msg { margin-top: 10px; font-size: 0.85rem; padding: 8px 12px; border-radius: 4px; display: none; }
+    .status-msg.success { background-color: #e6f4ea; color: #137333; display: block; }
+    .status-msg.error { background-color: #fce8e6; color: #c5221f; display: block; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { text-align: left; padding: 10px; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+    th { background-color: #fafafa; font-weight: 600; color: #555; }
+    .badge { background: #e8f0fe; color: #1a73e8; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; }
+    .user-info { display: flex; justify-content: space-between; align-items: center; background: #e8f0fe; padding: 12px 16px; border-radius: 6px; margin-bottom: 15px; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>☁️ Cloud File Storage System</h1>
+
+  <!-- Auth Section -->
+  <div class="grid">
+    <!-- Register -->
+    <div class="card">
+      <h2>1. Register Account</h2>
+      <div class="form-group">
+        <label>Full Name</label>
+        <input type="text" id="regName" placeholder="User">
+      </div>
+      <div class="form-group">
+        <label>Email Address</label>
+        <input type="email" id="regEmail" placeholder="user@example.com">
+      </div>
+      <div class="form-group">
+        <label>Password (min 6 chars)</label>
+        <input type="password" id="regPassword" placeholder="••••••••">
+      </div>
+      <button onclick="handleRegister()">Register</button>
+      <div id="regStatus" class="status-msg"></div>
+    </div>
+
+    <!-- Login -->
+    <div class="card">
+      <h2>2. Login</h2>
+      <div class="form-group">
+        <label>Email Address</label>
+        <input type="email" id="loginEmail" placeholder="user@example.com">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="loginPassword" placeholder="••••••••">
+      </div>
+      <button onclick="handleLogin()">Login</button>
+      <div id="loginStatus" class="status-msg"></div>
+    </div>
+  </div>
+
+  <!-- Dashboard Section (shown after login) -->
+  <div id="dashboardSection" class="card" style="display: none;">
+    <div class="user-info">
+      <div>
+        Logged in as: <strong id="userName"></strong> (<span id="userEmail"></span>)
+      </div>
+      <button onclick="handleLogout()" class="btn-danger" style="padding: 6px 12px;">Logout</button>
+    </div>
+
+    <h2>3. Upload File</h2>
+    <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 15px;">
+      <input type="file" id="fileUploadInput" accept=".pdf,.txt,.doc,.docx,.jpg,.jpeg,.png,.zip">
+      <button onclick="handleUpload()">Upload to Cloud</button>
+    </div>
+    <small style="color: #666;">Allowed formats: PDF, TXT, DOC, DOCX, JPG, PNG, ZIP (Max 10 MB)</small>
+    <div id="uploadStatus" class="status-msg"></div>
+
+    <h2 style="margin-top: 25px;">4. My Files</h2>
+    <table id="filesTable">
+      <thead>
+        <tr>
+          <th>Original Filename</th>
+          <th>Type</th>
+          <th>Size</th>
+          <th>Uploaded Date</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="filesBody">
+        <tr><td colspan="5" style="text-align:center; color: #888;">No files uploaded yet.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  const API_BASE = 'http://localhost:5000/api';
+
+  function showStatus(elementId, text, isSuccess) {
+    const el = document.getElementById(elementId);
+    el.className = 'status-msg ' + (isSuccess ? 'success' : 'error');
+    el.innerText = text;
+    el.style.display = 'block';
+  }
+
+  // Check existing session
+  window.addEventListener('DOMContentLoaded', () => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      loadUserProfile();
+      loadFiles();
+    }
+  });
+
+  // 1. Register
+  async function handleRegister() {
+    const name = document.getElementById('regName').value.trim();
+    const email = document.getElementById('regEmail').value.trim();
+    const password = document.getElementById('regPassword').value;
+
+    try {
+      const res = await fetch(`${API_BASE}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Registration failed');
+
+      showStatus('regStatus', 'Registration successful! You can now log in.', true);
+      document.getElementById('loginEmail').value = email;
+    } catch (err) {
+      showStatus('regStatus', err.message, false);
+    }
+  }
+
+  // 2. Login
+  async function handleLogin() {
+    const email = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPassword').value;
+
+    try {
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Login failed');
+
+      localStorage.setItem('token', data.token);
+      showStatus('loginStatus', 'Logged in successfully!', true);
+
+      loadUserProfile();
+      loadFiles();
+    } catch (err) {
+      showStatus('loginStatus', err.message, false);
+    }
+  }
+
+  // Logout
+  function handleLogout() {
+    localStorage.removeItem('token');
+    document.getElementById('dashboardSection').style.display = 'none';
+    showStatus('loginStatus', 'Logged out.', true);
+  }
+
+  // Load User Profile
+  async function loadUserProfile() {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/auth/me`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.status === 401) {
+        handleLogout();
+        return;
+      }
+      const data = await res.json();
+      document.getElementById('userName').innerText = data.user.name;
+      document.getElementById('userEmail').innerText = data.user.email;
+      document.getElementById('dashboardSection').style.display = 'block';
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  // 3. Upload File
+  async function handleUpload() {
+    const token = localStorage.getItem('token');
+    const input = document.getElementById('fileUploadInput');
+    if (!input.files || input.files.length === 0) {
+      showStatus('uploadStatus', 'Please choose a file first.', false);
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', input.files[0]);
+
+    try {
+      const res = await fetch(`${API_BASE}/files/upload`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Upload failed');
+
+      showStatus('uploadStatus', `File "${data.file.originalName}" uploaded successfully!`, true);
+      input.value = '';
+      loadFiles();
+    } catch (err) {
+      showStatus('uploadStatus', err.message, false);
+    }
+  }
+
+  // 4. List Files
+  async function loadFiles() {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/files`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      const tbody = document.getElementById('filesBody');
+
+      if (!data.files || data.files.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: #888;">No files uploaded yet.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = data.files.map(file => `
+        <tr>
+          <td><strong>${file.originalName}</strong></td>
+          <td><span class="badge">${file.mimeType}</span></td>
+          <td>${(file.size / 1024).toFixed(1)} KB</td>
+          <td>${new Date(file.uploadedAt).toLocaleString()}</td>
+          <td>
+            <button onclick="downloadFile('${file.id}', '${file.originalName}')" style="padding: 5px 10px; font-size: 0.8rem;">Download</button>
+            <button onclick="deleteFile('${file.id}')" class="btn-danger" style="padding: 5px 10px; font-size: 0.8rem; margin-left: 5px;">Delete</button>
+          </td>
+        </tr>
+      `).join('');
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  // 5. Download File
+  async function downloadFile(id, originalName) {
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_BASE}/files/${id}/download`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message);
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = originalName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Download error: ' + err.message);
+    }
+  }
+
+  // 6. Delete File
+  async function deleteFile(id) {
+    if (!confirm('Are you sure you want to delete this file?')) return;
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_BASE}/files/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Delete failed');
+
+      loadFiles();
+    } catch (err) {
+      alert('Delete error: ' + err.message);
+    }
+  }
+</script>
+
+</body>
+</html>
